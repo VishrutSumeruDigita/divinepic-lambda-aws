@@ -1,0 +1,67 @@
+service: divinepic-lambda
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: ${env:AWS_REGION, 'ap-south-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 3008  # Maximum memory for ML workloads
+  timeout: 900      # 15 minutes - maximum for Lambda
+  
+  environment:
+    AWS_REGION: ${env:AWS_REGION, 'ap-south-1'}
+    S3_BUCKET_NAME: ${env:S3_BUCKET_NAME, 'divinepic-test'}
+    ES_HOST: ${env:ES_HOST, 'http://13.202.43.6:9200'}
+    PYTHONPATH: /var/task:/var/runtime:/opt/python
+  
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - s3:GetObject
+        - s3:PutObject
+        - s3:DeleteObject
+      Resource: 
+        - "arn:aws:s3:::${env:S3_BUCKET_NAME, 'divinepic-test'}/*"
+    - Effect: Allow
+      Action:
+        - s3:ListBucket
+      Resource: 
+        - "arn:aws:s3:::${env:S3_BUCKET_NAME, 'divinepic-test'}"
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+      Resource: "*"
+
+functions:
+  processImages:
+    handler: lambda_handler.lambda_handler
+    events:
+      - http:
+          path: upload-images
+          method: post
+          cors: true
+    reservedConcurrency: 2  # Limit concurrency due to memory-intensive ML model
+    
+  # Alternative: Direct invocation function (no API Gateway)
+  processImagesDirect:
+    handler: lambda_handler.lambda_handler
+    reservedConcurrency: 2
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true  # Use Docker to build dependencies
+    zip: true
+    slim: true
+    strip: false
+    noDeps:
+      - boto3      # Already available in Lambda runtime
+      - botocore   # Already available in Lambda runtime
+    requirementsFile: requirements-lambda.txt
+    pipCmdExtraArgs:
+      - --no-cache-dir
+      - --disable-pip-version-check 

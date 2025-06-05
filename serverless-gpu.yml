@@ -1,0 +1,203 @@
+service: divinepic-gpu-orchestrator
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: ${env:AWS_REGION, 'ap-south-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512   # Much lower memory needed for orchestration
+  timeout: 300      # 5 minutes should be enough for orchestration
+  
+  environment:
+    AWS_REGION: ${env:AWS_REGION, 'ap-south-1'}
+    S3_BUCKET_NAME: ${env:S3_BUCKET_NAME, 'divinepic-test'}
+    ES_HOST: ${env:ES_HOST, 'http://13.202.43.6:9200'}
+    EC2_AMI_ID: ${env:EC2_AMI_ID, 'ami-0c94855ba95b798c7'}
+    EC2_KEY_PAIR: ${env:EC2_KEY_PAIR, 'divinepic-key'}
+    EC2_SECURITY_GROUP: ${env:EC2_SECURITY_GROUP, 'divinepic-sg'}
+    EC2_SUBNET_ID: ${env:EC2_SUBNET_ID, ''}
+  
+  iamRoleStatements:
+    # S3 permissions
+    - Effect: Allow
+      Action:
+        - s3:GetObject
+        - s3:PutObject
+        - s3:DeleteObject
+      Resource: 
+        - "arn:aws:s3:::${env:S3_BUCKET_NAME, 'divinepic-test'}/*"
+    - Effect: Allow
+      Action:
+        - s3:ListBucket
+      Resource: 
+        - "arn:aws:s3:::${env:S3_BUCKET_NAME, 'divinepic-test'}"
+    
+    # EC2 permissions for launching instances
+    - Effect: Allow
+      Action:
+        - ec2:RunInstances
+        - ec2:DescribeInstances
+        - ec2:DescribeImages
+        - ec2:DescribeKeyPairs
+        - ec2:DescribeSecurityGroups
+        - ec2:DescribeSubnets
+        - ec2:TerminateInstances
+        - ec2:CreateTags
+      Resource: "*"
+    
+    # IAM permissions for passing EC2 role
+    - Effect: Allow
+      Action:
+        - iam:PassRole
+      Resource: 
+        - "arn:aws:iam::*:role/DivinePicEC2Role"
+    
+    # SSM Parameter Store permissions
+    - Effect: Allow
+      Action:
+        - ssm:GetParameter
+        - ssm:PutParameter
+        - ssm:DeleteParameter
+        - ssm:DescribeParameters
+      Resource:
+        - "arn:aws:ssm:${env:AWS_REGION, 'ap-south-1'}:*:parameter/divinepic/jobs/*"
+    
+    # CloudWatch Logs
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+      Resource: "*"
+
+functions:
+  # Main orchestrator function - starts GPU instances
+  orchestrator:
+    handler: lambda_orchestrator.lambda_handler
+    events:
+      - http:
+          path: process-images
+          method: post
+          cors: true
+    description: "Orchestrates image processing by launching GPU instances"
+    
+  # Status checker function - checks job status and retrieves results  
+  statusChecker:
+    handler: lambda_status_checker.lambda_handler
+    events:
+      - http:
+          path: job-status/{job_id}
+          method: get
+          cors: true
+      - http:
+          path: jobs
+          method: get
+          cors: true
+    description: "Checks job status and retrieves processing results"
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: false  # Much simpler dependencies for orchestration
+    zip: true
+    slim: true
+    strip: false
+    noDeps:
+      - boto3      # Already available in Lambda runtime
+      - botocore   # Already available in Lambda runtime
+
+# CloudFormation resources for additional AWS infrastructure
+resources:
+  Resources:
+    # IAM Role for EC2 instances
+    DivinePicEC2Role:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: DivinePicEC2Role
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: ec2.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonS3FullAccess
+          - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+        Policies:
+          - PolicyName: DivinePicEC2Policy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                    - s3:DeleteObject
+                  Resource: 
+                    - "arn:aws:s3:::${env:S3_BUCKET_NAME, 'divinepic-test'}/*"
+                - Effect: Allow
+                  Action:
+                    - ssm:GetParameter
+                    - ssm:PutParameter
+                    - ssm:DeleteParameter
+                  Resource:
+                    - "arn:aws:ssm:${env:AWS_REGION, 'ap-south-1'}:*:parameter/divinepic/jobs/*"
+
+    # Instance Profile for EC2 role
+    DivinePicEC2InstanceProfile:
+      Type: AWS::IAM::InstanceProfile
+      Properties:
+        InstanceProfileName: DivinePicEC2Role
+        Roles:
+          - !Ref DivinePicEC2Role
+
+    # Security Group for GPU instances
+    DivinePicSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: divinepic-sg
+        GroupDescription: Security group for DivinePic GPU processing instances
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0  # SSH access - restrict this in production
+        SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0  # Allow all outbound traffic
+        Tags:
+          - Key: Name
+            Value: DivinePic GPU Processing SG
+          - Key: Purpose
+            Value: face-detection
+
+  Outputs:
+    # Output the API Gateway endpoints
+    OrchestratorApiUrl:
+      Description: "API Gateway endpoint URL for image processing orchestrator"
+      Value:
+        Fn::Join:
+          - ""
+          - - "https://"
+            - Ref: "RestApiApigEvent"
+            - ".execute-api."
+            - ${self:provider.region}
+            - ".amazonaws.com/"
+            - ${self:provider.stage}
+            - "/process-images"
+    
+    StatusCheckerApiUrl:
+      Description: "API Gateway endpoint URL for job status checking"
+      Value:
+        Fn::Join:
+          - ""
+          - - "https://"
+            - Ref: "RestApiApigEvent"
+            - ".execute-api."
+            - ${self:provider.region}
+            - ".amazonaws.com/"
+            - ${self:provider.stage}
+            - "/job-status/{job_id}" 

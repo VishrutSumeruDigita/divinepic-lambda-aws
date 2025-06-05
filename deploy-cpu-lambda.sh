@@ -126,7 +126,6 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; the
 {
     "Variables": {
         "S3_BUCKET_NAME": "divinepic-test",
-        "AWS_REGION": "ap-south-1",
         "ES_HOST": "http://13.202.43.6:9200",
         "PROCESSING_MODE": "cpu"
     }
@@ -149,7 +148,6 @@ else
 {
     "Variables": {
         "S3_BUCKET_NAME": "divinepic-test",
-        "AWS_REGION": "ap-south-1",
         "ES_HOST": "http://13.202.43.6:9200",
         "PROCESSING_MODE": "cpu"
     }

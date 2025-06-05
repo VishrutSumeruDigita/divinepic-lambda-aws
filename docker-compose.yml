@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  # FastAPI app service
+  fastapi:
+    build: .
+    container_name: fastapi-app
+    ports:
+      - "8000:8000"   # Exposing FastAPI on port 8000
+    environment:
+      - AWS_REGION=ap-south-1
+      - S3_BUCKET_NAME=divinepic-test
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    volumes:
+      - .:/app
+    networks:
+      - app-network
+
+  # Elasticsearch service
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"   # Exposing Elasticsearch on port 9200
+    networks:
+      - app-network
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+# Define the network for inter-service communication
+networks:
+  app-network:
+    driver: bridge
+
+# Define a volume for Elasticsearch to persist data
+volumes:
+  es-data:
+    driver: local

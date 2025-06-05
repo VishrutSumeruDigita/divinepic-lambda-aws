@@ -121,14 +121,41 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; the
         --function-name "$FUNCTION_NAME" \
         --image-uri "$ECR_URI"
     
+    # Create environment variables file
+    cat > lambda-env.json << 'EOF'
+{
+    "Variables": {
+        "S3_BUCKET_NAME": "divinepic-test",
+        "AWS_REGION": "ap-south-1",
+        "ES_HOST": "http://13.202.43.6:9200",
+        "PROCESSING_MODE": "cpu"
+    }
+}
+EOF
+    
     # Also update configuration
     aws lambda update-function-configuration \
         --function-name "$FUNCTION_NAME" \
         --timeout 300 \
         --memory-size 1024 \
-        --environment 'Variables={"S3_BUCKET_NAME":"divinepic-test","AWS_REGION":"ap-south-1","ES_HOST":"http://13.202.43.6:9200","PROCESSING_MODE":"cpu"}'
+        --environment file://lambda-env.json
+    
+    rm lambda-env.json
 else
     echo "Creating new Lambda function..."
+    
+    # Create environment variables file
+    cat > lambda-env.json << 'EOF'
+{
+    "Variables": {
+        "S3_BUCKET_NAME": "divinepic-test",
+        "AWS_REGION": "ap-south-1",
+        "ES_HOST": "http://13.202.43.6:9200",
+        "PROCESSING_MODE": "cpu"
+    }
+}
+EOF
+    
     aws lambda create-function \
         --function-name "$FUNCTION_NAME" \
         --package-type Image \
@@ -136,7 +163,9 @@ else
         --role "$LAMBDA_ROLE_ARN" \
         --timeout 300 \
         --memory-size 1024 \
-        --environment 'Variables={"S3_BUCKET_NAME":"divinepic-test","AWS_REGION":"ap-south-1","ES_HOST":"http://13.202.43.6:9200","PROCESSING_MODE":"cpu"}'
+        --environment file://lambda-env.json
+    
+    rm lambda-env.json
 fi
 
 echo "6️⃣ Creating public endpoint..."

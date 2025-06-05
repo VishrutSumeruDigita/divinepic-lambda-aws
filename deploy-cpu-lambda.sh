@@ -69,26 +69,85 @@ echo "✅ Image pushed to ECR"
 
 echo "5️⃣ Creating CPU Lambda function..."
 
-# Create CPU-optimized Lambda (lower memory = lower cost)
-aws lambda create-function \
-    --function-name "$FUNCTION_NAME" \
-    --package-type Image \
-    --code ImageUri="$ECR_URI" \
-    --role "arn:aws:iam::$ACCOUNT_ID:role/lambda-execution-role" \
-    --timeout 300 \
-    --memory-size 1024 \
-    --environment Variables='{
-        "S3_BUCKET_NAME":"divinepic-test",
-        "AWS_REGION":"ap-south-1",
-        "ES_HOST":"http://13.202.43.6:9200",
-        "PROCESSING_MODE":"cpu"
-    }' \
-    2>/dev/null || {
-        echo "ℹ️  Function exists, updating..."
-        aws lambda update-function-code \
-            --function-name "$FUNCTION_NAME" \
-            --image-uri "$ECR_URI"
-    }
+# Check if Lambda execution role exists, create if not
+LAMBDA_ROLE_NAME="lambda-execution-role"
+LAMBDA_ROLE_ARN="arn:aws:iam::$ACCOUNT_ID:role/$LAMBDA_ROLE_NAME"
+
+# Create Lambda execution role if it doesn't exist
+aws iam get-role --role-name "$LAMBDA_ROLE_NAME" >/dev/null 2>&1 || {
+    echo "Creating Lambda execution role..."
+    
+    # Create trust policy for Lambda
+    cat > lambda-trust-policy.json << 'EOF'
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "lambda.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
+EOF
+    
+    aws iam create-role \
+        --role-name "$LAMBDA_ROLE_NAME" \
+        --assume-role-policy-document file://lambda-trust-policy.json
+    
+    # Attach basic execution policy
+    aws iam attach-role-policy \
+        --role-name "$LAMBDA_ROLE_NAME" \
+        --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+    
+    # Attach S3 access policy
+    aws iam attach-role-policy \
+        --role-name "$LAMBDA_ROLE_NAME" \
+        --policy-arn "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+    
+    # Wait for role to be available
+    echo "Waiting for IAM role to be ready..."
+    sleep 10
+    
+    rm lambda-trust-policy.json
+}
+
+# Check if Lambda function exists
+if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+    echo "ℹ️  Function exists, updating code..."
+    aws lambda update-function-code \
+        --function-name "$FUNCTION_NAME" \
+        --image-uri "$ECR_URI"
+    
+    # Also update configuration
+    aws lambda update-function-configuration \
+        --function-name "$FUNCTION_NAME" \
+        --timeout 300 \
+        --memory-size 1024 \
+        --environment Variables='{
+            "S3_BUCKET_NAME":"divinepic-test",
+            "AWS_REGION":"ap-south-1",
+            "ES_HOST":"http://13.202.43.6:9200",
+            "PROCESSING_MODE":"cpu"
+        }'
+else
+    echo "Creating new Lambda function..."
+    aws lambda create-function \
+        --function-name "$FUNCTION_NAME" \
+        --package-type Image \
+        --code ImageUri="$ECR_URI" \
+        --role "$LAMBDA_ROLE_ARN" \
+        --timeout 300 \
+        --memory-size 1024 \
+        --environment Variables='{
+            "S3_BUCKET_NAME":"divinepic-test",
+            "AWS_REGION":"ap-south-1",
+            "ES_HOST":"http://13.202.43.6:9200",
+            "PROCESSING_MODE":"cpu"
+        }'
+fi
 
 echo "6️⃣ Creating public endpoint..."
 

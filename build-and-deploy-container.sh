@@ -119,76 +119,19 @@ if [ $FUNCTION_EXISTS -eq 0 ]; then
 else
     echo "   Creating new function..."
     
-    # Create execution role if it doesn't exist
-    ROLE_NAME="DivinePicLambdaRole"
-    ROLE_ARN=$(aws iam get-role --role-name $ROLE_NAME --query 'Role.Arn' --output text 2>/dev/null)
+    # Use the role created by setup script
+    ROLE_NAME="DivinePicLambdaExecutionRole"
+    ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME"
     
+    # Check if role exists
+    aws iam get-role --role-name $ROLE_NAME >/dev/null 2>&1
     if [ $? -ne 0 ]; then
-        echo "   Creating IAM role..."
-        
-        # Create trust policy
-        cat > trust-policy.json << EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "lambda.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}
-EOF
-
-        aws iam create-role \
-            --role-name $ROLE_NAME \
-            --assume-role-policy-document file://trust-policy.json
-        
-        # Attach policies
-        aws iam attach-role-policy \
-            --role-name $ROLE_NAME \
-            --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        
-        aws iam attach-role-policy \
-            --role-name $ROLE_NAME \
-            --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
-        
-        # Create custom policy for Elasticsearch
-        cat > lambda-policy.json << EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "es:ESHttpPost",
-                "es:ESHttpPut"
-            ],
-            "Resource": "*"
-        }
-    ]
-}
-EOF
-
-        aws iam create-policy \
-            --policy-name DivinePicLambdaPolicy \
-            --policy-document file://lambda-policy.json 2>/dev/null || true
-        
-        aws iam attach-role-policy \
-            --role-name $ROLE_NAME \
-            --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/DivinePicLambdaPolicy
-        
-        # Wait for role to be ready
-        echo "   Waiting for role to be ready..."
-        sleep 10
-        
-        ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME"
-        
-        # Clean up temp files
-        rm -f trust-policy.json lambda-policy.json
+        echo "❌ Lambda execution role '$ROLE_NAME' not found!"
+        echo "💡 Please run './setup-ec2-permissions.sh' first to create necessary roles"
+        exit 1
     fi
+    
+    echo "   Using IAM role: $ROLE_ARN"
     
     # Create the Lambda function
     aws lambda create-function \

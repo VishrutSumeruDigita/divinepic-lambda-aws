@@ -119,19 +119,20 @@ if [ $FUNCTION_EXISTS -eq 0 ]; then
 else
     echo "   Creating new function..."
     
-    # Use the role created by setup script
-    ROLE_NAME="DivinePicLambdaExecutionRole"
+    # Use the existing lambda execution role
+    ROLE_NAME="lambda-execution-role"
     ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME"
     
     # Check if role exists
     aws iam get-role --role-name $ROLE_NAME >/dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "❌ Lambda execution role '$ROLE_NAME' not found!"
-        echo "💡 Please run './setup-ec2-permissions.sh' first to create necessary roles"
+        echo "💡 Available roles:"
+        aws iam list-roles --query 'Roles[?contains(RoleName,`lambda`) || contains(RoleName,`Lambda`)].RoleName' --output text
         exit 1
     fi
     
-    echo "   Using IAM role: $ROLE_ARN"
+    echo "   Using existing IAM role: $ROLE_ARN"
     
     # Create the Lambda function
     aws lambda create-function \

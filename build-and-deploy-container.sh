@@ -14,7 +14,7 @@ fi
 # Configuration
 AWS_REGION=${AWS_REGION:-"ap-south-1"}
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_REPOSITORY="divinepic-lambda"
+ECR_REPOSITORY="divinepic-face-detection"
 LAMBDA_FUNCTION_NAME="divinepic-face-detection"
 IMAGE_TAG="latest"
 
@@ -37,32 +37,16 @@ if ! aws sts get-caller-identity >/dev/null 2>&1; then
     exit 1
 fi
 
-# Create ECR repository if it doesn't exist
-echo "📦 Creating ECR repository..."
+# Verify ECR repository exists
+echo "📦 Checking ECR repository..."
 aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1
 if [ $? -ne 0 ]; then
-    echo "   Creating new repository: $ECR_REPOSITORY"
-    aws ecr create-repository --repository-name $ECR_REPOSITORY --region $AWS_REGION
-    
-    # Set lifecycle policy to keep only recent images
-    aws ecr put-lifecycle-policy --repository-name $ECR_REPOSITORY --region $AWS_REGION --lifecycle-policy-text '{
-        "rules": [
-            {
-                "rulePriority": 1,
-                "description": "Keep only 5 recent images",
-                "selection": {
-                    "tagStatus": "any",
-                    "countType": "imageCountMoreThan",
-                    "countNumber": 5
-                },
-                "action": {
-                    "type": "expire"
-                }
-            }
-        ]
-    }'
+    echo "❌ ECR repository '$ECR_REPOSITORY' not found!"
+    echo "💡 Available repositories:"
+    aws ecr describe-repositories --region $AWS_REGION --query 'repositories[].repositoryName' --output text
+    exit 1
 else
-    echo "   Repository already exists: $ECR_REPOSITORY"
+    echo "✅ Repository exists: $ECR_REPOSITORY"
 fi
 
 # Get ECR login token

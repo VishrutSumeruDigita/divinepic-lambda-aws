@@ -104,13 +104,13 @@ def get_face_model():
     """Get or initialize the face detection model (singleton pattern)."""
     global face_app
     if face_app is None:
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"Using device: {DEVICE}")
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {DEVICE}")
 
-        face_app = FaceAnalysis(name="antelopev2", providers=["CPUExecutionProvider"] if DEVICE == "cpu" else ["CUDAExecutionProvider"])
-        face_app.prepare(ctx_id=0 if DEVICE == "cuda" else -1, det_thresh=0.35, det_size=(640, 640))
+    face_app = FaceAnalysis(name="antelopev2", providers=["CPUExecutionProvider"] if DEVICE == "cpu" else ["CUDAExecutionProvider"])
+    face_app.prepare(ctx_id=0 if DEVICE == "cuda" else -1, det_thresh=0.35, det_size=(640, 640))
 
-        logger.info("✅ antelopev2 model loaded successfully")
+    logger.info("✅ antelopev2 model loaded successfully")
     return face_app
 
 # ─── Process images in the background (generate embeddings and index to ES) ────
@@ -120,43 +120,43 @@ def process_images_and_generate_embeddings(image_paths: List[str]):
     
     for image_path in image_paths:
         try:
-            # Upload image to S3
-            s3_url = upload_image_to_s3(image_path)
-            
-            # Read image and run face detection
-            img_bgr = cv2.imread(image_path)
+        # Upload image to S3
+        s3_url = upload_image_to_s3(image_path)
+        
+        # Read image and run face detection
+        img_bgr = cv2.imread(image_path)
             if img_bgr is None:
                 logger.warning(f"⚠️ Could not read image '{image_path}'. Skipping...")
                 continue
                 
-            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             faces = face_model.get(img_rgb)
-            num_faces = len(faces)
-            
-            if not faces:
-                logger.info(f"ℹ️  No faces detected in '{image_path}'. Skipping...")
-                continue
-            
-            # Log faces and index to Elasticsearch
-            for idx, face in enumerate(faces):
-                emb_vec = face.normed_embedding
-                box_coords = face.bbox.tolist()
+        num_faces = len(faces)
+        
+        if not faces:
+            logger.info(f"ℹ️  No faces detected in '{image_path}'. Skipping...")
+            continue
+        
+        # Log faces and index to Elasticsearch
+        for idx, face in enumerate(faces):
+            emb_vec = face.normed_embedding
+            box_coords = face.bbox.tolist()
 
-                # Create the Elasticsearch document for this face
-                doc = {
-                    "image_name": s3_url,
-                    "embeds": emb_vec.tolist(),
-                    "box": box_coords
-                }
+            # Create the Elasticsearch document for this face
+            doc = {
+                "image_name": s3_url,
+                "embeds": emb_vec.tolist(),
+                "box": box_coords
+            }
 
-                # Index the face into Elasticsearch
-                for client, host in es_clients:
-                    try:
-                        face_id = f"{Path(image_path).stem}_face_{idx+1}_{uuid.uuid4().hex[:8]}"
-                        client.index(index=INDEX_NAME, id=face_id, document=doc)
-                        logger.info(f"✅ Indexed face {idx+1} from '{image_path}' into Elasticsearch ({host})")
-                    except Exception as e:
-                        logger.error(f"❌ Failed to index face {idx+1} from '{image_path}' into ES ({host}): {e}")
+            # Index the face into Elasticsearch
+            for client, host in es_clients:
+                try:
+                    face_id = f"{Path(image_path).stem}_face_{idx+1}_{uuid.uuid4().hex[:8]}"
+                    client.index(index=INDEX_NAME, id=face_id, document=doc)
+                    logger.info(f"✅ Indexed face {idx+1} from '{image_path}' into Elasticsearch ({host})")
+                except Exception as e:
+                    logger.error(f"❌ Failed to index face {idx+1} from '{image_path}' into ES ({host}): {e}")
         except Exception as e:
             logger.error(f"⚠️ Error processing '{image_path}': {e}")
         finally:

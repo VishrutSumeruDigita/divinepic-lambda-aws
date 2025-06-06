@@ -178,59 +178,94 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     AWS Lambda handler for processing image uploads.
     
-    Expected event structure for API Gateway:
-    {
-        "body": base64_encoded_multipart_data,
-        "isBase64Encoded": true,
-        "headers": {
-            "content-type": "multipart/form-data; boundary=..."
-        }
-    }
-    
-    Or for direct invocation:
-    {
-        "images": [
-            {
-                "filename": "image1.jpg",
-                "data": "base64_encoded_image_data"
-            }
-        ]
-    }
+    Handles both Function URL events and direct invocations.
     """
     try:
         # Initialize clients
         initialize_clients()
         
         logger.info("⏳ Starting Lambda image processing...")
+        logger.info(f"Event keys: {list(event.keys())}")
         
-        # Handle different event types
-        if "images" in event:
-            # Direct Lambda invocation with images array
-            images = event["images"]
-            results = []
+        # Handle Function URL events
+        if "requestContext" in event and "http" in event["requestContext"]:
+            # This is a Function URL event
+            logger.info("📡 Processing Function URL request")
             
-            for img_data in images:
-                filename = img_data["filename"]
+            if event.get("httpMethod") == "GET" or event["requestContext"]["http"]["method"] == "GET":
+                return {
+                    "statusCode": 200,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({
+                        "message": "DivinePic Face Detection API",
+                        "status": "Active",
+                        "usage": "POST with JSON body containing 'images' array"
+                    })
+                }
+            
+            # Parse request body
+            try:
+                if event.get("isBase64Encoded", False):
+                    body = base64.b64decode(event["body"]).decode('utf-8')
+                else:
+                    body = event.get("body", "{}")
+                
+                request_data = json.loads(body)
+                
+                if "images" not in request_data:
+                    return {
+                        "statusCode": 400,
+                        "headers": {"Content-Type": "application/json"},
+                        "body": json.dumps({
+                            "error": "Missing 'images' array in request body"
+                        })
+                    }
+                
+                images = request_data["images"]
+                
+            except Exception as e:
+                return {
+                    "statusCode": 400,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({
+                        "error": f"Invalid JSON in request body: {str(e)}"
+                    })
+                }
+        
+        # Handle direct Lambda invocation
+        elif "images" in event:
+            logger.info("🎯 Processing direct invocation")
+            images = event["images"]
+            
+        else:
+            error_msg = "Invalid event format. Expected Function URL event or direct invocation with 'images' array."
+            logger.error(error_msg)
+            
+            # Return appropriate error format
+            if "requestContext" in event:
+                return {
+                    "statusCode": 400,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({"error": error_msg})
+                }
+            else:
+                return {"error": error_msg}
+        
+        # Process images
+        results = []
+        for img_data in images:
+            filename = img_data["filename"]
+            try:
                 image_bytes = base64.b64decode(img_data["data"])
                 result = process_single_image(image_bytes, filename)
                 results.append(result)
-            
-        elif "body" in event:
-            # API Gateway event - would need multipart parsing
-            # For now, return error asking for direct invocation format
-            return {
-                "statusCode": 400,
-                "body": json.dumps({
-                    "error": "Multipart form parsing not implemented. Use direct invocation format."
+            except Exception as e:
+                logger.error(f"Error processing {filename}: {e}")
+                results.append({
+                    "filename": filename,
+                    "error": f"Failed to decode image: {str(e)}",
+                    "faces_detected": 0
                 })
-            }
-        else:
-            return {
-                "statusCode": 400,
-                "body": json.dumps({
-                    "error": "Invalid event format. Expected 'images' array or API Gateway event."
-                })
-            }
         
         # Calculate summary statistics
         total_images = len(results)
@@ -252,12 +287,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info(f"✅ Processed {total_images} images, detected {total_faces} faces, indexed {total_indexed}")
         
         # Return appropriate format based on event type
-        if "body" in event:
+        if "requestContext" in event:
             return {
                 "statusCode": 200,
-                "headers": {
-                    "Content-Type": "application/json"
-                },
+                "headers": {"Content-Type": "application/json"},
                 "body": json.dumps(response)
             }
         else:
@@ -270,9 +303,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "message": "Failed to process images"
         }
         
-        if "body" in event:
+        if "requestContext" in event:
             return {
                 "statusCode": 500,
+                "headers": {"Content-Type": "application/json"},
                 "body": json.dumps(error_response)
             }
         else:

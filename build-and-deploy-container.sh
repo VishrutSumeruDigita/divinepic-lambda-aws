@@ -113,7 +113,7 @@ if [ $FUNCTION_EXISTS -eq 0 ]; then
         --function-name $LAMBDA_FUNCTION_NAME \
         --timeout 900 \
         --memory-size 3008 \
-        --environment "Variables={AWS_REGION=$AWS_REGION,S3_BUCKET_NAME=${S3_BUCKET_NAME:-divinepic-test},ES_HOST=${ES_HOST:-http://13.202.43.6:9200}}" \
+        --environment "Variables={S3_BUCKET_NAME=${S3_BUCKET_NAME:-divinepic-test},ES_HOST=${ES_HOST:-http://13.202.43.6:9200}}" \
         --region $AWS_REGION
         
 else
@@ -142,7 +142,7 @@ else
         --package-type Image \
         --timeout 900 \
         --memory-size 3008 \
-        --environment "Variables={AWS_REGION=$AWS_REGION,S3_BUCKET_NAME=${S3_BUCKET_NAME:-divinepic-test},ES_HOST=${ES_HOST:-http://13.202.43.6:9200}}" \
+        --environment "Variables={S3_BUCKET_NAME=${S3_BUCKET_NAME:-divinepic-test},ES_HOST=${ES_HOST:-http://13.202.43.6:9200}}" \
         --region $AWS_REGION
 fi
 
